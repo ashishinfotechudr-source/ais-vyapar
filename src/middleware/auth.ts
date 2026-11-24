@@ -1,13 +1,12 @@
 import { NextFunction, Request, Response } from 'express';
-import { DecodedIdToken } from 'firebase-admin/auth';
-import { adminAuth } from '../lib/firebase-admin.ts';
-import { getOrCreateUser } from '../db/users.ts';
+import { verifySessionToken } from '../lib/authCrypto.ts';
+import { getUserByUid } from '../db/users.ts';
 
 export interface AuthRequest extends Request {
-  user?: DecodedIdToken;
   dbUser?: {
     id: number;
     uid: string;
+    username: string | null;
     email: string;
     name: string | null;
     role: string;
@@ -36,23 +35,30 @@ export const requireAuth = async (
   }
 
   try {
-    const decodedToken = await adminAuth.verifyIdToken(token);
-    req.user = decodedToken;
+    const claims = verifySessionToken(token);
+    const dbUser = await getUserByUid(claims.uid);
 
-    const dbUser = await getOrCreateUser(
-      decodedToken.uid,
-      decodedToken.email || '',
-      typeof decodedToken.name === 'string' ? decodedToken.name : undefined
-    );
-
+    if (!dbUser) {
+      return res.status(401).json({ error: 'Unauthorized: Account not found' });
+    }
     if (!dbUser.active) {
       return res.status(403).json({ error: 'Account is disabled. Contact your administrator.' });
     }
 
     req.dbUser = dbUser;
     next();
-  } catch (error) {
-    console.error('Auth verification error:', error);
+  } catch {
     return res.status(401).json({ error: 'Unauthorized: Invalid or expired session' });
   }
+};
+
+export const requireAdmin = (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  if (!req.dbUser || req.dbUser.role !== 'Admin') {
+    return res.status(403).json({ error: 'Administrator privileges required.' });
+  }
+  next();
 };

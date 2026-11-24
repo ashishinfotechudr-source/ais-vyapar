@@ -5,21 +5,24 @@ import {
   ClipboardList,
   CreditCard,
   DatabaseBackup,
+  Eye,
+  EyeOff,
   FileSpreadsheet,
+  KeyRound,
   LayoutDashboard,
   LogOut,
+  Mail,
   Menu,
   Moon,
   Package,
   Receipt,
   Settings,
   Sun,
+  UserPlus,
   Users,
   X,
 } from 'lucide-react';
-import type { User } from 'firebase/auth';
-import { apiFetch } from './lib/api.ts';
-import { signInWithGoogle, signOutUser, subscribeAuth } from './lib/firebase.ts';
+import { apiFetch, getSessionToken, setSessionToken } from './lib/api.ts';
 import type { PdfOutput } from './lib/pdfGenerator.ts';
 import type { Company, ErpBundle, ErpUser, GstMasterRow } from './types/erp.ts';
 import { BulkImportModal, type ImportEntityType } from './components/BulkImportModal.tsx';
@@ -48,6 +51,8 @@ type NavTab =
   | 'backup'
   | 'setup';
 
+type AuthMode = 'login' | 'signup' | 'forgot';
+
 const NAV_ITEMS: Array<{ id: NavTab; label: string; icon: React.FC<{ className?: string }> }> = [
   { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
   { id: 'vendors', label: 'Vendors & GSTIN', icon: Users },
@@ -61,10 +66,22 @@ const NAV_ITEMS: Array<{ id: NavTab; label: string; icon: React.FC<{ className?:
   { id: 'setup', label: 'Setup & Admin', icon: Settings },
 ];
 
+const ADMIN_SUPPORT_EMAIL = 'ashishinfotech.udr@gmail.com';
+
 export default function App() {
   const [authReady, setAuthReady] = useState(false);
-  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
-  const [signingIn, setSigningIn] = useState(false);
+  const [hasUsers, setHasUsers] = useState(true);
+  const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authSuccess, setAuthSuccess] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+
+  const [usernameInput, setUsernameInput] = useState('');
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
+  const [forgotNote, setForgotNote] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -113,57 +130,133 @@ export default function App() {
     document.documentElement.classList.toggle('dark', darkMode);
   }, [darkMode]);
 
-  const loadWorkspace = useCallback(
-    async (companyIdOverride?: number) => {
-      setLoading(true);
-      setLoadError(null);
-      try {
-        const qs = companyIdOverride ? `?companyId=${companyIdOverride}` : '';
-        const res = await apiFetch<{
-          user: ErpUser;
-          companies: Company[];
-          activeCompanyId: number;
-          bundle: ErpBundle;
-          masterData: GstMasterRow[];
-        }>(`/api/bootstrap${qs}`);
-        setDbUser(res.user);
-        setCompanies(res.companies);
-        setActiveCompanyId(res.activeCompanyId);
-        setBundle(res.bundle);
-        setMasterData(res.masterData);
-      } catch (err: any) {
-        setLoadError(err.message || 'Failed to load ERP workspace.');
-      } finally {
-        setLoading(false);
-      }
-    },
-    []
-  );
-
   useEffect(() => {
-    const unsub = subscribeAuth((user) => {
-      setFirebaseUser(user);
-      setAuthReady(true);
-      if (user) {
-        loadWorkspace();
-      } else {
-        setBundle(null);
-        setCompanies([]);
-        setDbUser(null);
-      }
-    });
-    return () => unsub();
-  }, [loadWorkspace]);
+    apiFetch<{ hasUsers: boolean }>('/api/auth/status')
+      .then((res) => {
+        setHasUsers(res.hasUsers);
+        if (!res.hasUsers) {
+          setAuthMode('signup');
+        }
+      })
+      .catch(() => {
+        setHasUsers(true);
+      })
+      .finally(() => setAuthReady(true));
+  }, []);
 
-  const handleSignIn = async () => {
-    setSigningIn(true);
+  const loadWorkspace = useCallback(async (companyIdOverride?: number) => {
+    setLoading(true);
+    setLoadError(null);
     try {
-      await signInWithGoogle();
+      const qs = companyIdOverride ? `?companyId=${companyIdOverride}` : '';
+      const res = await apiFetch<{
+        user: ErpUser;
+        companies: Company[];
+        activeCompanyId: number;
+        bundle: ErpBundle;
+        masterData: GstMasterRow[];
+      }>(`/api/bootstrap${qs}`);
+      setDbUser(res.user);
+      setCompanies(res.companies);
+      setActiveCompanyId(res.activeCompanyId);
+      setBundle(res.bundle);
+      setMasterData(res.masterData);
     } catch (err: any) {
-      notify(err.message || 'Google sign-in cancelled or failed.', true);
+      setLoadError(err.message || 'Failed to load ERP workspace.');
     } finally {
-      setSigningIn(false);
+      setLoading(false);
     }
+  }, []);
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setAuthSuccess(null);
+    setAuthBusy(true);
+    try {
+      const res = await apiFetch<{ token: string; user: ErpUser }>('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: usernameInput.trim(),
+          email: emailInput.trim(),
+          password: passwordInput,
+        }),
+      });
+      setSessionToken(res.token);
+      setDbUser(res.user);
+      setPasswordInput('');
+      await loadWorkspace();
+    } catch (err: any) {
+      setAuthError(err.message || 'Sign in failed.');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleSignupSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setAuthSuccess(null);
+    if (passwordInput !== confirmPasswordInput) {
+      setAuthError('Passwords do not match.');
+      return;
+    }
+    setAuthBusy(true);
+    try {
+      const res = await apiFetch<{ token: string; user: ErpUser }>('/api/auth/signup', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: usernameInput.trim(),
+          email: emailInput.trim(),
+          password: passwordInput,
+        }),
+      });
+      setSessionToken(res.token);
+      setDbUser(res.user);
+      setHasUsers(true);
+      setPasswordInput('');
+      setConfirmPasswordInput('');
+      await loadWorkspace();
+    } catch (err: any) {
+      setAuthError(err.message || 'Account creation failed.');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleForgotSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setAuthSuccess(null);
+    setAuthBusy(true);
+    try {
+      const res = await apiFetch<{ ok: boolean; message: string }>('/api/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: usernameInput.trim(),
+          email: emailInput.trim(),
+          note: forgotNote.trim(),
+        }),
+      });
+      setAuthSuccess(res.message);
+    } catch (err: any) {
+      setAuthError(err.message || 'Could not submit password reset request.');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleSignOut = () => {
+    setSessionToken(null);
+    setDbUser(null);
+    setBundle(null);
+    setCompanies([]);
+    setActiveCompanyId(null);
+    setPasswordInput('');
+    setConfirmPasswordInput('');
+    setAuthError(null);
+    setAuthSuccess(null);
+    setAuthMode('login');
   };
 
   const handleConfirmDelete = (title: string, desc: string, action: () => Promise<void>) => {
@@ -208,6 +301,12 @@ export default function App() {
     }
   };
 
+  const mailtoHref = `mailto:${ADMIN_SUPPORT_EMAIL}?subject=${encodeURIComponent(
+    `VyaparLedger ERP Password Reset Request - ${emailInput || usernameInput}`
+  )}&body=${encodeURIComponent(
+    `Hello Administrator,\n\nPlease reset my VyaparLedger ERP password.\n\nUsername: ${usernameInput}\nEmail ID: ${emailInput}\nNote: ${forgotNote || 'Forgot password'}\n`
+  )}`;
+
   if (!authReady) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-slate-600 dark:bg-slate-950 dark:text-slate-300">
@@ -216,7 +315,7 @@ export default function App() {
     );
   }
 
-  if (!firebaseUser) {
+  if (!dbUser || !getSessionToken()) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 px-4 py-12 dark:bg-slate-950">
         <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -232,43 +331,316 @@ export default function App() {
             </div>
           </div>
 
-          <div className="mt-6 space-y-2.5 border-y border-slate-200 py-5 text-xs text-slate-600 dark:border-slate-800 dark:text-slate-300">
-            <p className="font-semibold text-slate-800 dark:text-slate-100">Included Capabilities:</p>
-            <ul className="space-y-1.5">
-              <li>• PostgreSQL Relational Persistence with Snapshot Backup & Restore</li>
-              <li>• GSTR-1, GSTR-2 & GSTR-3B Compliance with Table 6.1 ITC Utilization</li>
-              <li>• Tally GSTIN Verification & Vendor Autofill + GSTZen Master Catalog</li>
-              <li>• Multi-Warehouse Advanced Inventory (Weighted Avg, Batch/Serial, Gate Pass)</li>
-              <li>• Real-Time PDF Invoice Generation & Bulk Excel Import/Export</li>
-            </ul>
+          <div className="mt-6 grid grid-cols-2 gap-1.5 rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('login');
+                setAuthError(null);
+                setAuthSuccess(null);
+              }}
+              className={`rounded-md py-2 text-xs font-semibold transition ${
+                authMode === 'login'
+                  ? 'bg-white text-slate-900 shadow-xs dark:bg-slate-900 dark:text-slate-100'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400'
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('signup');
+                setAuthError(null);
+                setAuthSuccess(null);
+              }}
+              className={`rounded-md py-2 text-xs font-semibold transition ${
+                authMode === 'signup'
+                  ? 'bg-white text-slate-900 shadow-xs dark:bg-slate-900 dark:text-slate-100'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400'
+              }`}
+            >
+              Create Account
+            </button>
           </div>
 
-          <button
-            type="button"
-            disabled={signingIn}
-            onClick={handleSignIn}
-            className="mt-6 flex w-full items-center justify-center gap-3 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 shadow-xs transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:bg-slate-800"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                fill="#4285F4"
-                d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
-              />
-              <path
-                fill="#34A853"
-                d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.14C3.26 21.3 7.31 24 12 24Z"
-              />
-              <path
-                fill="#FBBC05"
-                d="M5.28 14.24c-.24-.72-.38-1.49-.38-2.24s.14-1.52.38-2.24V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.99-3.14Z"
-              />
-              <path
-                fill="#EA4335"
-                d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96Z"
-              />
-            </svg>
-            {signingIn ? 'Signing in…' : 'Sign in with Google'}
-          </button>
+          {!hasUsers && authMode === 'signup' && (
+            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+              First account setup: the first registered user automatically becomes the{' '}
+              <span className="font-semibold">Administrator</span>.
+            </div>
+          )}
+
+          {authError && (
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+              {authError}
+            </div>
+          )}
+
+          {authSuccess && (
+            <div className="mt-4 space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+              <p>{authSuccess}</p>
+              <a
+                href={mailtoHref}
+                className="inline-flex items-center gap-1.5 rounded-md bg-emerald-700 px-3 py-1.5 font-semibold text-white hover:bg-emerald-800"
+              >
+                <Mail className="h-3.5 w-3.5" />
+                Email {ADMIN_SUPPORT_EMAIL}
+              </a>
+            </div>
+          )}
+
+          {authMode === 'login' && (
+            <form onSubmit={handleLoginSubmit} className="mt-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Username
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoComplete="username"
+                  placeholder="Enter your username"
+                  value={usernameInput}
+                  onChange={(e) => setUsernameInput(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Email ID
+                </label>
+                <input
+                  type="email"
+                  required
+                  autoComplete="email"
+                  placeholder="name@company.com"
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Password
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('forgot');
+                      setAuthError(null);
+                      setAuthSuccess(null);
+                    }}
+                    className="text-xs font-medium text-emerald-700 hover:underline dark:text-emerald-400"
+                  >
+                    Forgot Password?
+                  </button>
+                </div>
+                <div className="relative mt-1">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    autoComplete="current-password"
+                    placeholder="Enter password"
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 pr-10 text-sm text-slate-900 outline-none focus:border-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-emerald-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((s) => !s)}
+                    className="absolute inset-y-0 right-2.5 flex items-center text-slate-400 hover:text-slate-600"
+                    aria-label="Toggle password visibility"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={authBusy}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50 dark:bg-emerald-600 dark:hover:bg-emerald-700"
+              >
+                <KeyRound className="h-4 w-4" />
+                {authBusy ? 'Signing in…' : 'Sign In to ERP'}
+              </button>
+            </form>
+          )}
+
+          {authMode === 'signup' && (
+            <form onSubmit={handleSignupSubmit} className="mt-5 space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Username
+                </label>
+                <input
+                  type="text"
+                  required
+                  minLength={2}
+                  autoComplete="username"
+                  placeholder="Choose a username"
+                  value={usernameInput}
+                  onChange={(e) => setUsernameInput(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Email ID
+                </label>
+                <input
+                  type="email"
+                  required
+                  autoComplete="email"
+                  placeholder="name@company.com"
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-emerald-500"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Duplicate Email IDs are prevented automatically.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Password (min 6 characters)
+                </label>
+                <div className="relative mt-1">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    autoComplete="new-password"
+                    placeholder="Create password"
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 pr-10 text-sm text-slate-900 outline-none focus:border-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-emerald-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((s) => !s)}
+                    className="absolute inset-y-0 right-2.5 flex items-center text-slate-400 hover:text-slate-600"
+                    aria-label="Toggle password visibility"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Confirm Password
+                </label>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  placeholder="Re-enter password"
+                  value={confirmPasswordInput}
+                  onChange={(e) => setConfirmPasswordInput(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-emerald-500"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={authBusy}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50 dark:bg-emerald-600 dark:hover:bg-emerald-700"
+              >
+                <UserPlus className="h-4 w-4" />
+                {authBusy ? 'Creating Account…' : !hasUsers ? 'Create Administrator Account' : 'Create User Account'}
+              </button>
+            </form>
+          )}
+
+          {authMode === 'forgot' && (
+            <form onSubmit={handleForgotSubmit} className="mt-5 space-y-4">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                Submit your registered Username and Email ID below, and email{' '}
+                <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">
+                  {ADMIN_SUPPORT_EMAIL}
+                </span>{' '}
+                for password reset assistance.
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Username
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Enter your username"
+                  value={usernameInput}
+                  onChange={(e) => setUsernameInput(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Registered Email ID
+                </label>
+                <input
+                  type="email"
+                  required
+                  placeholder="name@company.com"
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Message (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Reason or contact phone"
+                  value={forgotNote}
+                  onChange={(e) => setForgotNote(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <button
+                  type="submit"
+                  disabled={authBusy}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50 dark:bg-emerald-600 dark:hover:bg-emerald-700"
+                >
+                  <Mail className="h-4 w-4" />
+                  {authBusy ? 'Sending Request…' : 'Send Reset Request'}
+                </button>
+                <a
+                  href={mailtoHref}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                >
+                  <Mail className="h-3.5 w-3.5" />
+                  Compose Email to {ADMIN_SUPPORT_EMAIL}
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode('login');
+                    setAuthError(null);
+                    setAuthSuccess(null);
+                  }}
+                  className="mt-1 text-xs font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                >
+                  Back to Sign In
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </div>
     );
@@ -330,14 +702,14 @@ export default function App() {
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
               <p className="truncate text-xs font-semibold text-slate-900 dark:text-slate-100">
-                {dbUser?.name || firebaseUser.displayName || 'ERP User'}
+                {dbUser.username || dbUser.name} ({dbUser.role})
               </p>
-              <p className="truncate font-mono text-[11px] text-slate-500">{firebaseUser.email}</p>
+              <p className="truncate font-mono text-[11px] text-slate-500">{dbUser.email}</p>
             </div>
             <button
               type="button"
               title="Sign Out"
-              onClick={() => signOutUser()}
+              onClick={handleSignOut}
               className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-100 hover:text-red-600 dark:border-slate-700 dark:hover:bg-slate-800"
             >
               <LogOut className="h-4 w-4" />
@@ -516,6 +888,7 @@ export default function App() {
                 <SetupAdminView
                   company={bundle.company}
                   companies={companies}
+                  currentUser={dbUser}
                   termsTemplates={bundle.termsTemplates}
                   masterData={masterData}
                   onRefresh={() => loadWorkspace(bundle.company.id)}

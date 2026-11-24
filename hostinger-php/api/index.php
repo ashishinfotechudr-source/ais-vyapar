@@ -12,8 +12,12 @@ if ($method === 'GET' && $path === '/health') {
     jsonOut(['ok' => true, 'service' => 'vyaparledger-erp-php']);
 }
 
-$user = requireAuthUser();
-$pdo = getPdo();
+$pdo = null;
+
+function logAudit(PDO $pdo, string $email, string $action, string $entityType = '', string $detail = '', ?int $companyId = null): void {
+    $pdo->prepare('INSERT INTO audit_logs (company_id, actor_email, action, entity_type, detail) VALUES (?, ?, ?, ?, ?)')
+        ->execute([$companyId, $email, $action, $entityType, $detail]);
+}
 
 function parseCompanyId(array $body = []): int {
     $raw = $_GET['companyId'] ?? $body['companyId'] ?? $_SERVER['HTTP_X_COMPANY_ID'] ?? 0;
@@ -22,11 +26,6 @@ function parseCompanyId(array $body = []): int {
         jsonOut(['error' => 'Valid companyId is required.'], 400);
     }
     return $id;
-}
-
-function logAudit(PDO $pdo, string $email, string $action, string $entityType = '', string $detail = '', ?int $companyId = null): void {
-    $pdo->prepare('INSERT INTO audit_logs (company_id, actor_email, action, entity_type, detail) VALUES (?, ?, ?, ?, ?)')
-        ->execute([$companyId, $email, $action, $entityType, $detail]);
 }
 
 function seedMasterDataIfEmpty(PDO $pdo): void {
@@ -155,6 +154,59 @@ function getCompanyBundle(PDO $pdo, int $companyId): array {
 }
 
 try {
+    $pdo = getPdo();
+
+    // Public Authentication Routes (Username + Email ID + Password)
+    if ($method === 'GET' && $path === '/auth/status') {
+        $cnt = (int)$pdo->query('SELECT COUNT(*) FROM users WHERE password_hash IS NOT NULL')->fetchColumn();
+        jsonOut(['hasUsers' => $cnt > 0]);
+    }
+
+    if ($method === 'POST' && $path === '/auth/signup') {
+        $b = getJsonBody();
+        $created = signupWithCredentials($pdo, $b);
+        $token = issueSessionToken($created);
+        logAudit($pdo, $created['email'], 'User Signed Up (' . $created['role'] . ')', 'auth', 'Username: ' . ($created['username'] ?? ''));
+        jsonOut(['token' => $token, 'user' => $created], 201);
+    }
+
+    if ($method === 'POST' && $path === '/auth/login') {
+        $b = getJsonBody();
+        $logged = loginWithCredentials($pdo, $b);
+        $token = issueSessionToken($logged);
+        logAudit($pdo, $logged['email'], 'User Logged In', 'auth', 'Username: ' . ($logged['username'] ?? ''));
+        jsonOut(['token' => $token, 'user' => $logged]);
+    }
+
+    if ($method === 'POST' && $path === '/auth/forgot-password') {
+        $b = getJsonBody();
+        $username = trim((string)($b['username'] ?? ''));
+        $email = strtolower(trim((string)($b['email'] ?? '')));
+        $note = trim((string)($b['note'] ?? ''));
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            jsonOut(['error' => 'Please enter a valid Email ID.'], 400);
+        }
+        $adminEmail = defined('ADMIN_RESET_EMAIL') ? ADMIN_RESET_EMAIL : 'ashishinfotech.udr@gmail.com';
+        $detail = 'User ' . ($username !== '' ? $username : '(unspecified)') . ' requested password reset. Admin contact: ' . $adminEmail . ($note !== '' ? ' | Note: ' . $note : '');
+        logAudit($pdo, $email, 'Forgot Password Request', 'auth', $detail);
+
+        $subject = 'VyaparLedger ERP - Password Reset Request (' . $email . ')';
+        $mailBody = "Password reset requested on VyaparLedger ERP:\n\nUsername: " . ($username !== '' ? $username : 'N/A') . "\nEmail ID: " . $email . "\nNote: " . ($note !== '' ? $note : 'N/A') . "\n\nPlease reset the user password from Setup & Admin -> Users & Access.";
+        @mail($adminEmail, $subject, $mailBody, "From: noreply@erp1.ashishinfotechsolution.com\r\nReply-To: " . $email . "\r\n");
+
+        jsonOut([
+            'ok' => true,
+            'adminEmail' => $adminEmail,
+            'message' => 'Password reset request sent to ' . $adminEmail . '. Please contact the Administrator if you need immediate access.',
+        ]);
+    }
+
+    $user = requireAuthUser();
+
+    if ($method === 'GET' && $path === '/auth/me') {
+        jsonOut(['user' => $user]);
+    }
+
     // 1. BOOTSTRAP
     if ($method === 'GET' && $path === '/bootstrap') {
         seedMasterDataIfEmpty($pdo);
@@ -1101,20 +1153,51 @@ try {
         jsonOut(['ok' => true, 'bundle' => getCompanyBundle($pdo, $cid)]);
     }
 
-    // 13. USERS
+    // 13. USERS (Admin Only)
     if ($method === 'GET' && $path === '/users') {
-        jsonOut(hydrateRows($pdo->query('SELECT * FROM users ORDER BY id ASC')->fetchAll()));
+        requireAdminUser($user);
+        $rows = hydrateRows($pdo->query('SELECT * FROM users ORDER BY id ASC')->fetchAll());
+        jsonOut(array_map('sanitizeUserRow', $rows));
     }
     if ($method === 'PUT' && preg_match('#^/users/(\d+)$#', $path, $m)) {
+        requireAdminUser($user);
         $id = (int)$m[1];
         $b = getJsonBody();
-        $pdo->prepare('UPDATE users SET role=?, active=? WHERE id=?')->execute([$b['role'] ?? 'Admin', !empty($b['active']) ? 1 : 0, $id]);
-        jsonOut(hydrateRow($pdo->query("SELECT * FROM users WHERE id=$id")->fetch()));
+        $pdo->prepare('UPDATE users SET role=?, active=? WHERE id=?')->execute([$b['role'] ?? 'Accountant', !empty($b['active']) ? 1 : 0, $id]);
+        $st = $pdo->prepare('SELECT * FROM users WHERE id = ? LIMIT 1');
+        $st->execute([$id]);
+        $row = $st->fetch();
+        if (!$row) {
+            jsonOut(['error' => 'User not found.'], 404);
+        }
+        $safe = sanitizeUserRow(hydrateRow($row));
+        logAudit($pdo, $user['email'], 'User Rights Updated', 'user', $safe['email']);
+        jsonOut($safe);
+    }
+    if ($method === 'PUT' && preg_match('#^/users/(\d+)/password$#', $path, $m)) {
+        requireAdminUser($user);
+        $id = (int)$m[1];
+        $b = getJsonBody();
+        $newPassword = (string)($b['newPassword'] ?? '');
+        if (strlen($newPassword) < 6) {
+            jsonOut(['error' => 'New password must be at least 6 characters.'], 400);
+        }
+        $pwHash = password_hash($newPassword, PASSWORD_BCRYPT);
+        $pdo->prepare('UPDATE users SET password_hash=? WHERE id=?')->execute([$pwHash, $id]);
+        $st = $pdo->prepare('SELECT * FROM users WHERE id = ? LIMIT 1');
+        $st->execute([$id]);
+        $row = $st->fetch();
+        if (!$row) {
+            jsonOut(['error' => 'User not found.'], 404);
+        }
+        $safe = sanitizeUserRow(hydrateRow($row));
+        logAudit($pdo, $user['email'], 'User Password Reset by Admin', 'user', $safe['email']);
+        jsonOut(['ok' => true, 'user' => $safe]);
     }
 
     jsonOut(['error' => 'Endpoint not found: ' . $method . ' ' . $path], 404);
 } catch (Throwable $e) {
-    if ($pdo->inTransaction()) {
+    if ($pdo instanceof PDO && $pdo->inTransaction()) {
         $pdo->rollBack();
     }
     jsonOut(['error' => $e->getMessage()], 500);

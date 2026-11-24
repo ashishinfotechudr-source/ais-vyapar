@@ -1,17 +1,23 @@
 import * as XLSX from 'xlsx';
-import { auth } from './firebase.ts';
+
+let inMemoryToken: string | null = null;
+
+export function setSessionToken(token: string | null) {
+  inMemoryToken = token;
+}
+
+export function getSessionToken(): string | null {
+  return inMemoryToken;
+}
 
 export async function apiFetch<T = any>(
   url: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const currentUser = auth.currentUser;
-  if (!currentUser) {
-    throw new Error('Authentication required. Please sign in.');
-  }
-  const idToken = await currentUser.getIdToken();
   const headers = new Headers(options.headers || {});
-  headers.set('Authorization', `Bearer ${idToken}`);
+  if (inMemoryToken) {
+    headers.set('Authorization', `Bearer ${inMemoryToken}`);
+  }
   if (options.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }

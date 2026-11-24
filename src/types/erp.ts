@@ -396,6 +396,7 @@ export interface AuditLogRow {
 export interface ErpUser {
   id: number;
   uid: string;
+  username?: string;
   email: string;
   name: string;
   role: string;

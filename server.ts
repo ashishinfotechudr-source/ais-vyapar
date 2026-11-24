@@ -3,7 +3,7 @@ import express, { Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import * as cheerio from 'cheerio';
 import JSZip from 'jszip';
 import { build as buildVite, createServer as createViteServer } from 'vite';
@@ -18,6 +18,7 @@ import {
   paymentSheets,
   purchaseOrders,
   termsTemplates,
+  users,
   vendors,
   vouchers,
   warehouses,
@@ -38,8 +39,16 @@ import {
   updateCompanyProfile,
   upsertMasterDataEntries,
 } from './src/db/erp.ts';
-import { listUsers, updateUserPermissions } from './src/db/users.ts';
-import { AuthRequest, requireAuth } from './src/middleware/auth.ts';
+import {
+  AuthError,
+  listUsers,
+  loginWithCredentials,
+  resetUserPassword,
+  signupWithCredentials,
+  updateUserPermissions,
+} from './src/db/users.ts';
+import { issueSessionToken } from './src/lib/authCrypto.ts';
+import { AuthRequest, requireAdmin, requireAuth } from './src/middleware/auth.ts';
 import {
   computeLineItemsTotals,
   determineSupplyType,
@@ -68,6 +77,9 @@ function parseCompanyId(req: AuthRequest): number {
 }
 
 function handleError(res: Response, err: unknown, fallback = 'Operation failed') {
+  if (err instanceof AuthError) {
+    return res.status(err.status).json({ error: err.message });
+  }
   const msg = err instanceof Error ? err.message : fallback;
   const status = msg.toLowerCase().includes('not found') ? 404 : msg.toLowerCase().includes('required') ? 400 : 500;
   res.status(status).json({ error: msg });
@@ -76,6 +88,85 @@ function handleError(res: Response, err: unknown, fallback = 'Operation failed')
 // Health check (unauthenticated)
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'vyaparledger-erp' });
+});
+
+// Auth status & custom credential authentication
+app.get('/api/auth/status', async (_req, res: Response) => {
+  try {
+    const rows = await db.select({ id: users.id }).from(users).where(isNotNull(users.passwordHash));
+    res.json({ hasUsers: rows.length > 0 });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+app.post('/api/auth/signup', async (req, res: Response) => {
+  try {
+    const user = await signupWithCredentials({
+      username: req.body?.username,
+      email: req.body?.email,
+      password: req.body?.password,
+    });
+    const token = issueSessionToken({
+      uid: user.uid,
+      email: user.email,
+      username: user.username || user.name || '',
+      role: user.role,
+    });
+    await logAudit(user.email, `User Signed Up (${user.role})`, 'auth', `Username: ${user.username}`);
+    res.status(201).json({ token, user });
+  } catch (err) {
+    handleError(res, err, 'Signup failed');
+  }
+});
+
+app.post('/api/auth/login', async (req, res: Response) => {
+  try {
+    const user = await loginWithCredentials({
+      username: req.body?.username,
+      email: req.body?.email,
+      password: req.body?.password,
+    });
+    const token = issueSessionToken({
+      uid: user.uid,
+      email: user.email,
+      username: user.username || user.name || '',
+      role: user.role,
+    });
+    await logAudit(user.email, 'User Logged In', 'auth', `Username: ${user.username}`);
+    res.json({ token, user });
+  } catch (err) {
+    handleError(res, err, 'Login failed');
+  }
+});
+
+app.post('/api/auth/forgot-password', async (req, res: Response) => {
+  try {
+    const username = String(req.body?.username || '').trim();
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const note = String(req.body?.note || '').trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Please enter a valid Email ID.' });
+    }
+    await logAudit(
+      email,
+      'Forgot Password Request',
+      'auth',
+      `User ${username || '(unspecified)'} requested password reset. Admin contact: ashishinfotech.udr@gmail.com${note ? ` | Note: ${note}` : ''}`
+    );
+    res.json({
+      ok: true,
+      adminEmail: 'ashishinfotech.udr@gmail.com',
+      message:
+        'Password reset request recorded. Please send the reset request email to ashishinfotech.udr@gmail.com so the Administrator can issue a new password.',
+    });
+  } catch (err) {
+    handleError(res, err, 'Failed to process password reset request');
+  }
+});
+
+app.get('/api/auth/me', requireAuth, (req: AuthRequest, res: Response) => {
+  res.json({ user: req.dbUser });
 });
 
 // Bootstrap user session, company list, active company bundle, and master data
@@ -1573,8 +1664,8 @@ app.post('/api/backup/restore', requireAuth, async (req: AuthRequest, res: Respo
   }
 });
 
-// Users & Access Rights
-app.get('/api/users', requireAuth, async (_req: AuthRequest, res: Response) => {
+// Users & Access Rights (Admin Only)
+app.get('/api/users', requireAuth, requireAdmin, async (_req: AuthRequest, res: Response) => {
   try {
     const rows = await listUsers();
     res.json(rows);
@@ -1583,13 +1674,27 @@ app.get('/api/users', requireAuth, async (_req: AuthRequest, res: Response) => {
   }
 });
 
-app.put('/api/users/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+app.put('/api/users/:id', requireAuth, requireAdmin, async (req: AuthRequest, res: Response) => {
   try {
     const id = Number(req.params.id);
-    const updated = await updateUserPermissions(id, req.body || {});
+    const { role, active, name, perms, companyIds } = req.body || {};
+    const updated = await updateUserPermissions(id, { role, active, name, perms, companyIds });
     if (!updated) return res.status(404).json({ error: 'User not found.' });
     await logAudit(req.dbUser!.email, 'User Rights Updated', 'user', updated.email);
     res.json(updated);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+app.put('/api/users/:id/password', requireAuth, requireAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    const newPassword = String(req.body?.newPassword || '');
+    const updated = await resetUserPassword(id, newPassword);
+    if (!updated) return res.status(404).json({ error: 'User not found.' });
+    await logAudit(req.dbUser!.email, 'User Password Reset by Admin', 'user', updated.email);
+    res.json({ ok: true, user: updated });
   } catch (err) {
     handleError(res, err);
   }

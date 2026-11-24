@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Building2, Landmark, Plus, Save, ShieldCheck, Trash2, Users } from 'lucide-react';
+import { Building2, KeyRound, Landmark, Plus, Save, ShieldCheck, Trash2, Users } from 'lucide-react';
 import { apiFetch } from '../lib/api.ts';
 import type { BankAccount, Company, ErpUser, GstMasterRow, TermsTemplate } from '../types/erp.ts';
 
 interface SetupAdminViewProps {
   company: Company;
   companies: Company[];
+  currentUser: ErpUser | null;
   termsTemplates: TermsTemplate[];
   masterData: GstMasterRow[];
   onRefresh: () => Promise<void>;
@@ -17,6 +18,7 @@ interface SetupAdminViewProps {
 export const SetupAdminView: React.FC<SetupAdminViewProps> = ({
   company,
   companies,
+  currentUser,
   termsTemplates,
   masterData,
   onRefresh,
@@ -58,20 +60,40 @@ export const SetupAdminView: React.FC<SetupAdminViewProps> = ({
 
   const [users, setUsers] = useState<ErpUser[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const [resetTargetId, setResetTargetId] = useState<number | null>(null);
+  const [resetPasswordInput, setResetPasswordInput] = useState('');
 
   useEffect(() => {
     setForm(company);
   }, [company]);
 
   useEffect(() => {
-    if (tab === 'users') {
+    if (tab === 'users' && currentUser?.role === 'Admin') {
       setLoadingUsers(true);
       apiFetch<ErpUser[]>('/api/users')
         .then(setUsers)
         .catch((err) => notify(err.message || 'Failed to load users', true))
         .finally(() => setLoadingUsers(false));
     }
-  }, [tab, notify]);
+  }, [tab, currentUser?.role, notify]);
+
+  const handleAdminResetPassword = async (userId: number) => {
+    if (resetPasswordInput.length < 6) {
+      notify('New password must be at least 6 characters.', true);
+      return;
+    }
+    try {
+      await apiFetch(`/api/users/${userId}/password`, {
+        method: 'PUT',
+        body: JSON.stringify({ newPassword: resetPasswordInput }),
+      });
+      setResetTargetId(null);
+      setResetPasswordInput('');
+      notify('User password updated successfully.');
+    } catch (err: any) {
+      notify(err.message || 'Failed to reset password.', true);
+    }
+  };
 
   const states = masterData.filter((m) => m.category === 'state');
 
@@ -767,23 +789,30 @@ export const SetupAdminView: React.FC<SetupAdminViewProps> = ({
               </h3>
             </div>
           </div>
-          {loadingUsers ? (
+          {currentUser?.role !== 'Admin' ? (
+            <div className="p-6 text-center text-xs text-slate-500">
+              Administrator role is required to view or manage user accounts.
+            </div>
+          ) : loadingUsers ? (
             <div className="p-6 text-center text-xs text-slate-500">Loading users…</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase text-slate-500 dark:border-slate-800 dark:bg-slate-950/50">
                   <tr>
-                    <th className="px-4 py-2.5">Name</th>
-                    <th className="px-4 py-2.5">Email</th>
+                    <th className="px-4 py-2.5">Username</th>
+                    <th className="px-4 py-2.5">Email ID</th>
                     <th className="px-4 py-2.5">Role</th>
                     <th className="px-4 py-2.5">Active</th>
+                    <th className="px-4 py-2.5 text-right">Password Reset</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                   {users.map((u) => (
                     <tr key={u.id}>
-                      <td className="px-4 py-3 font-semibold text-slate-900 dark:text-slate-100">{u.name}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900 dark:text-slate-100">
+                        {u.username || u.name}
+                      </td>
                       <td className="px-4 py-3 font-mono text-slate-600 dark:text-slate-300">{u.email}</td>
                       <td className="px-4 py-3">
                         <select
@@ -803,6 +832,48 @@ export const SetupAdminView: React.FC<SetupAdminViewProps> = ({
                           checked={u.active}
                           onChange={(e) => handleUpdateUserRole(u.id, u.role, e.target.checked)}
                         />
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {resetTargetId === u.id ? (
+                          <div className="inline-flex items-center gap-1.5">
+                            <input
+                              type="password"
+                              placeholder="Min 6 chars"
+                              value={resetPasswordInput}
+                              onChange={(e) => setResetPasswordInput(e.target.value)}
+                              className="w-28 rounded border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-950"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleAdminResetPassword(u.id)}
+                              className="rounded bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700"
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setResetTargetId(null);
+                                setResetPasswordInput('');
+                              }}
+                              className="rounded border border-slate-200 px-2 py-1 text-[11px] text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setResetTargetId(u.id);
+                              setResetPasswordInput('');
+                            }}
+                            className="inline-flex items-center gap-1 rounded border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                          >
+                            <KeyRound className="h-3 w-3" />
+                            Reset
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

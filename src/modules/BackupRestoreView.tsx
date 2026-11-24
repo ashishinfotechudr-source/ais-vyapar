@@ -9,8 +9,7 @@ import {
   Server,
   Upload,
 } from 'lucide-react';
-import { apiFetch, downloadBlob, exportRowsToExcel, fmtInr } from '../lib/api.ts';
-import { auth } from '../lib/firebase.ts';
+import { apiFetch, downloadBlob, exportRowsToExcel, fmtInr, getSessionToken } from '../lib/api.ts';
 import type { ErpBundle } from '../types/erp.ts';
 import type { ImportEntityType } from '../components/BulkImportModal.tsx';
 
@@ -47,7 +46,7 @@ export const BackupRestoreView: React.FC<BackupRestoreViewProps> = ({
   const handleDownloadHostingerZip = async () => {
     setExportingZip(true);
     try {
-      const token = await auth.currentUser?.getIdToken();
+      const token = getSessionToken();
       if (!token) throw new Error('Authentication required.');
       const res = await fetch('/api/export/hostinger-php-bundle', {
         headers: { Authorization: `Bearer ${token}` },

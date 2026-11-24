@@ -70,8 +70,10 @@ export interface GatePassItem {
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
   uid: text('uid').notNull().unique(),
+  username: text('username').default(''),
   email: text('email').notNull(),
   name: text('name').default(''),
+  passwordHash: text('password_hash'),
   role: text('role').notNull().default('Admin'),
   active: boolean('active').notNull().default(true),
   perms: jsonb('perms').$type<{
