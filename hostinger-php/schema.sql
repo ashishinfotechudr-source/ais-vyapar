@@ -1,0 +1,399 @@
+-- VyaparLedger ERP — MySQL / MariaDB Schema for Hostinger Shared Hosting
+-- Import this file into phpMyAdmin for your erp1.ashishinfotechsolution.com database.
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+CREATE TABLE IF NOT EXISTS `users` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `uid` VARCHAR(128) NOT NULL UNIQUE,
+  `email` VARCHAR(255) NOT NULL,
+  `name` VARCHAR(255) DEFAULT '',
+  `role` VARCHAR(64) NOT NULL DEFAULT 'Admin',
+  `active` TINYINT(1) NOT NULL DEFAULT 1,
+  `perms` LONGTEXT NULL,
+  `company_ids` LONGTEXT NULL,
+  `last_login` DATETIME NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `companies` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `code` VARCHAR(64) NOT NULL UNIQUE,
+  `name` VARCHAR(255) NOT NULL,
+  `legal_name` VARCHAR(255) DEFAULT '',
+  `gstin` VARCHAR(20) DEFAULT '',
+  `pan` VARCHAR(20) DEFAULT '',
+  `tan` VARCHAR(20) DEFAULT '',
+  `cin` VARCHAR(40) DEFAULT '',
+  `address` TEXT,
+  `city` VARCHAR(120) DEFAULT '',
+  `state` VARCHAR(120) DEFAULT 'Rajasthan',
+  `state_code` VARCHAR(10) DEFAULT '08',
+  `pincode` VARCHAR(20) DEFAULT '',
+  `country` VARCHAR(100) DEFAULT 'India',
+  `email` VARCHAR(255) DEFAULT '',
+  `phone` VARCHAR(60) DEFAULT '',
+  `website` VARCHAR(255) DEFAULT '',
+  `logo_url` TEXT,
+  `signature_url` TEXT,
+  `banks` LONGTEXT NOT NULL,
+  `numbering` LONGTEXT NOT NULL,
+  `financial_year_start` VARCHAR(20) DEFAULT '04',
+  `owner_uid` VARCHAR(128) NOT NULL,
+  `deleted` TINYINT(1) NOT NULL DEFAULT 0,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `vendors` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NOT NULL,
+  `vendor_code` VARCHAR(64) DEFAULT '',
+  `vendor_name` VARCHAR(255) NOT NULL,
+  `trade_name` VARCHAR(255) DEFAULT '',
+  `vendor_category` VARCHAR(100) DEFAULT 'Supplier',
+  `contact_person` VARCHAR(255) DEFAULT '',
+  `mobile` VARCHAR(40) DEFAULT '',
+  `email` VARCHAR(255) DEFAULT '',
+  `website` VARCHAR(255) DEFAULT '',
+  `gst_type` VARCHAR(100) DEFAULT 'Registered - Regular',
+  `gstin` VARCHAR(20) DEFAULT '',
+  `gst_status` VARCHAR(100) DEFAULT '',
+  `business_constitution` VARCHAR(120) DEFAULT '',
+  `pan` VARCHAR(20) DEFAULT '',
+  `tan` VARCHAR(20) DEFAULT '',
+  `msme_reg_no` VARCHAR(80) DEFAULT '',
+  `address` TEXT,
+  `city` VARCHAR(120) DEFAULT '',
+  `state` VARCHAR(120) DEFAULT '',
+  `state_code` VARCHAR(10) DEFAULT '',
+  `pincode` VARCHAR(20) DEFAULT '',
+  `country` VARCHAR(100) DEFAULT 'India',
+  `place_of_supply` VARCHAR(140) DEFAULT '',
+  `bank_name` VARCHAR(255) DEFAULT '',
+  `bank_branch` VARCHAR(255) DEFAULT '',
+  `account_no` VARCHAR(80) DEFAULT '',
+  `ifsc_code` VARCHAR(20) DEFAULT '',
+  `account_type` VARCHAR(40) DEFAULT 'Current',
+  `payment_terms` VARCHAR(100) DEFAULT '30 Days',
+  `credit_limit` DECIMAL(14,2) DEFAULT 0.00,
+  `opening_balance` DECIMAL(14,2) DEFAULT 0.00,
+  `tds_applicable` TINYINT(1) DEFAULT 0,
+  `tds_section` VARCHAR(40) DEFAULT '',
+  `tds_rate` DECIMAL(6,2) DEFAULT 0.00,
+  `status` VARCHAR(40) NOT NULL DEFAULT 'Active',
+  `notes` TEXT,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_vendors_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `warehouses` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NOT NULL,
+  `code` VARCHAR(64) NOT NULL,
+  `name` VARCHAR(255) NOT NULL,
+  `location` VARCHAR(255) DEFAULT '',
+  `state` VARCHAR(120) DEFAULT '',
+  `in_charge` VARCHAR(255) DEFAULT '',
+  `is_default` TINYINT(1) NOT NULL DEFAULT 0,
+  `active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_warehouses_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `inventory_items` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NOT NULL,
+  `sku` VARCHAR(80) NOT NULL,
+  `name` VARCHAR(255) NOT NULL,
+  `description` TEXT,
+  `category` VARCHAR(120) DEFAULT 'Raw Material',
+  `item_type` VARCHAR(60) DEFAULT 'Goods',
+  `hsn_sac` VARCHAR(20) DEFAULT '',
+  `gst_rate` DECIMAL(5,2) DEFAULT 18.00,
+  `cess_rate` DECIMAL(5,2) DEFAULT 0.00,
+  `unit` VARCHAR(30) DEFAULT 'NOS',
+  `alt_unit` VARCHAR(30) DEFAULT '',
+  `conversion_factor` DECIMAL(12,4) DEFAULT 1.0000,
+  `valuation_method` VARCHAR(60) DEFAULT 'Weighted Average',
+  `purchase_rate` DECIMAL(14,2) DEFAULT 0.00,
+  `selling_rate` DECIMAL(14,2) DEFAULT 0.00,
+  `mrp` DECIMAL(14,2) DEFAULT 0.00,
+  `opening_stock` DECIMAL(14,3) DEFAULT 0.000,
+  `current_stock` DECIMAL(14,3) DEFAULT 0.000,
+  `min_stock` DECIMAL(14,3) DEFAULT 0.000,
+  `reorder_level` DECIMAL(14,3) DEFAULT 0.000,
+  `max_stock` DECIMAL(14,3) DEFAULT 0.000,
+  `warehouse_id` INT UNSIGNED NULL,
+  `bin_location` VARCHAR(80) DEFAULT '',
+  `batch_tracked` TINYINT(1) NOT NULL DEFAULT 0,
+  `serial_tracked` TINYINT(1) NOT NULL DEFAULT 0,
+  `preferred_vendor_id` INT UNSIGNED NULL,
+  `active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_items_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `inventory_movements` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NOT NULL,
+  `entry_no` VARCHAR(80) NOT NULL,
+  `entry_date` VARCHAR(20) NOT NULL,
+  `movement_type` VARCHAR(40) NOT NULL,
+  `item_id` INT UNSIGNED NOT NULL,
+  `warehouse_id` INT UNSIGNED NULL,
+  `to_warehouse_id` INT UNSIGNED NULL,
+  `batch_no` VARCHAR(80) DEFAULT '',
+  `expiry_date` VARCHAR(20) DEFAULT '',
+  `serial_numbers` LONGTEXT NULL,
+  `qty` DECIMAL(14,3) NOT NULL,
+  `unit_rate` DECIMAL(14,2) DEFAULT 0.00,
+  `total_value` DECIMAL(14,2) DEFAULT 0.00,
+  `ref_doc_type` VARCHAR(60) DEFAULT '',
+  `ref_doc_no` VARCHAR(80) DEFAULT '',
+  `vendor_id` INT UNSIGNED NULL,
+  `remarks` TEXT,
+  `created_by` VARCHAR(255) DEFAULT '',
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_movements_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_movements_item` FOREIGN KEY (`item_id`) REFERENCES `inventory_items`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `purchase_orders` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NOT NULL,
+  `po_number` VARCHAR(80) NOT NULL,
+  `po_date` VARCHAR(20) NOT NULL,
+  `expected_delivery` VARCHAR(20) DEFAULT '',
+  `vendor_id` INT UNSIGNED NULL,
+  `vendor_name` VARCHAR(255) NOT NULL,
+  `vendor_gstin` VARCHAR(20) DEFAULT '',
+  `vendor_state` VARCHAR(120) DEFAULT '',
+  `vendor_state_code` VARCHAR(10) DEFAULT '',
+  `vendor_address` TEXT,
+  `delivery_address` TEXT,
+  `warehouse_id` INT UNSIGNED NULL,
+  `payment_terms` VARCHAR(100) DEFAULT '30 Days',
+  `terms_text` TEXT,
+  `items` LONGTEXT NOT NULL,
+  `charges` LONGTEXT NOT NULL,
+  `taxable_value` DECIMAL(14,2) DEFAULT 0.00,
+  `cgst_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `sgst_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `igst_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `cess_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `total_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `supply_type` VARCHAR(40) DEFAULT 'Intra-State',
+  `status` VARCHAR(40) NOT NULL DEFAULT 'Pending',
+  `notes` TEXT,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_po_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `work_orders` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NOT NULL,
+  `wo_number` VARCHAR(80) NOT NULL,
+  `wo_date` VARCHAR(20) NOT NULL,
+  `completion_date` VARCHAR(20) DEFAULT '',
+  `vendor_id` INT UNSIGNED NULL,
+  `contractor_name` VARCHAR(255) NOT NULL,
+  `vendor_gstin` VARCHAR(20) DEFAULT '',
+  `vendor_state` VARCHAR(120) DEFAULT '',
+  `vendor_state_code` VARCHAR(10) DEFAULT '',
+  `site_location` VARCHAR(255) DEFAULT '',
+  `scope_of_work` TEXT,
+  `terms_text` TEXT,
+  `items` LONGTEXT NOT NULL,
+  `charges` LONGTEXT NOT NULL,
+  `taxable_value` DECIMAL(14,2) DEFAULT 0.00,
+  `cgst_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `sgst_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `igst_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `total_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `supply_type` VARCHAR(40) DEFAULT 'Intra-State',
+  `status` VARCHAR(40) NOT NULL DEFAULT 'Pending',
+  `notes` TEXT,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_wo_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `vouchers` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NOT NULL,
+  `voucher_kind` VARCHAR(40) NOT NULL,
+  `voucher_no` VARCHAR(80) NOT NULL,
+  `voucher_date` VARCHAR(20) NOT NULL,
+  `due_date` VARCHAR(20) DEFAULT '',
+  `party_id` INT UNSIGNED NULL,
+  `party_name` VARCHAR(255) NOT NULL,
+  `party_gstin` VARCHAR(20) DEFAULT '',
+  `party_state` VARCHAR(120) DEFAULT '',
+  `party_state_code` VARCHAR(10) DEFAULT '',
+  `party_address` TEXT,
+  `place_of_supply` VARCHAR(140) DEFAULT '',
+  `supply_type` VARCHAR(40) DEFAULT 'Intra-State',
+  `invoice_type` VARCHAR(30) DEFAULT 'B2B',
+  `reverse_charge` TINYINT(1) NOT NULL DEFAULT 0,
+  `itc_eligibility` VARCHAR(60) DEFAULT 'Eligible',
+  `ref_no` VARCHAR(80) DEFAULT '',
+  `ref_date` VARCHAR(20) DEFAULT '',
+  `payment_mode` VARCHAR(60) DEFAULT 'Bank Transfer',
+  `bank_account` VARCHAR(120) DEFAULT '',
+  `tds_percent` DECIMAL(6,2) DEFAULT 0.00,
+  `tds_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `items` LONGTEXT NOT NULL,
+  `charges` LONGTEXT NOT NULL,
+  `journal_lines` LONGTEXT NOT NULL,
+  `taxable_value` DECIMAL(14,2) DEFAULT 0.00,
+  `cgst_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `sgst_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `igst_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `cess_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `round_off` DECIMAL(10,2) DEFAULT 0.00,
+  `total_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `paid_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `narration` TEXT,
+  `terms_text` TEXT,
+  `status` VARCHAR(40) NOT NULL DEFAULT 'Posted',
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_vouchers_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `bills` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NOT NULL,
+  `bill_no` VARCHAR(80) NOT NULL,
+  `bill_date` VARCHAR(20) NOT NULL,
+  `vendor_id` INT UNSIGNED NULL,
+  `vendor_name` VARCHAR(255) NOT NULL,
+  `vendor_gstin` VARCHAR(20) DEFAULT '',
+  `doc_no` VARCHAR(80) DEFAULT '',
+  `doc_date` VARCHAR(20) DEFAULT '',
+  `po_wo_ref` VARCHAR(80) DEFAULT '',
+  `amount` DECIMAL(14,2) DEFAULT 0.00,
+  `gst_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `cgst_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `sgst_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `igst_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `tds_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `deduction` DECIMAL(14,2) DEFAULT 0.00,
+  `net_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `pay_from_bank` VARCHAR(255) DEFAULT '',
+  `payment_mode` VARCHAR(60) DEFAULT 'NEFT',
+  `payment_sheet_id` INT UNSIGNED NULL,
+  `status` VARCHAR(40) NOT NULL DEFAULT 'Pending',
+  `narration` TEXT,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_bills_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `payment_sheets` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NOT NULL,
+  `sheet_no` VARCHAR(80) NOT NULL,
+  `sheet_date` VARCHAR(20) NOT NULL,
+  `pay_from_bank` VARCHAR(255) DEFAULT '',
+  `payment_mode` VARCHAR(60) DEFAULT 'NEFT',
+  `bill_ids` LONGTEXT NOT NULL,
+  `total_net_amount` DECIMAL(14,2) DEFAULT 0.00,
+  `status` VARCHAR(40) NOT NULL DEFAULT 'Initiated',
+  `remarks` TEXT,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_sheets_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `gate_passes` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NOT NULL,
+  `pass_no` VARCHAR(80) NOT NULL,
+  `pass_date` VARCHAR(20) NOT NULL,
+  `pass_type` VARCHAR(40) NOT NULL DEFAULT 'Returnable',
+  `direction` VARCHAR(40) NOT NULL DEFAULT 'Outward',
+  `party_name` VARCHAR(255) NOT NULL,
+  `vehicle_no` VARCHAR(60) DEFAULT '',
+  `driver_name` VARCHAR(120) DEFAULT '',
+  `items` LONGTEXT NOT NULL,
+  `status` VARCHAR(40) NOT NULL DEFAULT 'Open',
+  `remarks` TEXT,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `fk_gp_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `account_groups` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NOT NULL,
+  `name` VARCHAR(120) NOT NULL,
+  `nature` VARCHAR(40) NOT NULL,
+  `parent_group` VARCHAR(120) DEFAULT 'Primary',
+  `is_system` TINYINT(1) NOT NULL DEFAULT 0,
+  CONSTRAINT `fk_groups_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `ledgers` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NOT NULL,
+  `name` VARCHAR(255) NOT NULL,
+  `group_name` VARCHAR(120) NOT NULL,
+  `nature` VARCHAR(40) NOT NULL,
+  `opening_balance` DECIMAL(14,2) DEFAULT 0.00,
+  `opening_type` VARCHAR(10) DEFAULT 'Dr',
+  `gstin` VARCHAR(20) DEFAULT '',
+  `state` VARCHAR(120) DEFAULT '',
+  `vendor_id` INT UNSIGNED NULL,
+  CONSTRAINT `fk_ledgers_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `terms_templates` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NOT NULL,
+  `name` VARCHAR(150) NOT NULL,
+  `doc_type` VARCHAR(80) DEFAULT 'Purchase Order',
+  `content` TEXT NOT NULL,
+  `is_default` TINYINT(1) NOT NULL DEFAULT 0,
+  CONSTRAINT `fk_terms_company` FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `gst_master_data` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `category` VARCHAR(30) NOT NULL,
+  `code` VARCHAR(40) NOT NULL,
+  `name` VARCHAR(255) NOT NULL,
+  `description` TEXT,
+  `gst_rate` DECIMAL(5,2) NULL,
+  `cgst_rate` DECIMAL(5,2) NULL,
+  `sgst_rate` DECIMAL(5,2) NULL,
+  `igst_rate` DECIMAL(5,2) NULL,
+  `extra` LONGTEXT NULL,
+  `source` VARCHAR(120) DEFAULT 'GSTZen / GSTN',
+  `synced_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY `gst_master_cat_code_idx` (`category`, `code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `db_snapshots` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NULL,
+  `label` VARCHAR(255) NOT NULL,
+  `created_by` VARCHAR(255) NOT NULL,
+  `record_count` INT NOT NULL DEFAULT 0,
+  `payload` LONGTEXT NOT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `audit_logs` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `company_id` INT UNSIGNED NULL,
+  `actor_email` VARCHAR(255) NOT NULL,
+  `action` VARCHAR(255) NOT NULL,
+  `entity_type` VARCHAR(80) DEFAULT '',
+  `detail` TEXT,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET FOREIGN_KEY_CHECKS = 1;

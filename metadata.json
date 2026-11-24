@@ -1,0 +1,6 @@
+{
+  "name": "VyaparLedger ERP",
+  "description": "Enterprise GST ERP for procurement, advanced inventory, accounting vouchers, GSTR-1/2/3B compliance, vendor GSTIN verification, SQL backup & restore, and real-time PDF invoicing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

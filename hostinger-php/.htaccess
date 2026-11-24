@@ -1,0 +1,24 @@
+# Hostinger Apache / LiteSpeed Rewrite Rules for VyaparLedger ERP
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Preserve Authorization Bearer header for Firebase ID token verification in PHP
+  RewriteCond %{HTTP:Authorization} .
+  RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+  # Route all /api/* requests to PHP API router
+  RewriteRule ^api/(.*)$ api/index.php [QSA,L]
+
+  # Serve existing static files (assets, JS, CSS, images)
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # SPA fallback to React index.html
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+</IfModule>
